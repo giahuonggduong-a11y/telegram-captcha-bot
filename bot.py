@@ -1,3 +1,5 @@
+print(f"TOKEN={TOKEN}")
+
 import os
 import random
 import asyncio
