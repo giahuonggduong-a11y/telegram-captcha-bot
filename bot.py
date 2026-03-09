@@ -8,7 +8,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandle
 
 # ---------------- Configuration ----------------
 TOKEN = os.getenv("TOKEN")  # Set TOKEN in Railway environment variables
-CUSTOM_MESSAGE = "✅ You passed the captcha!"
+CUSTOM_MESSAGE = "✅ You passed the captcha, join the channel http://t.me/+_-kLSN2ul783Yjg0"
 answers = {}
 
 # ------------- Captcha Functions ----------------
