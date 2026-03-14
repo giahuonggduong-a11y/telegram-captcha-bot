@@ -1,100 +1,203 @@
 import os
 import random
-import asyncio
-from threading import Thread
-from flask import Flask
-import logging
+import time
+from datetime import datetime, timedelta
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
-
-# ---------------- Logging ----------------------
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
 )
 
-logger = logging.getLogger(__name__)
+TOKEN = os.getenv("BOT_TOKEN")
+GROUP_ID = int(os.getenv("GROUP_ID"))
 
-# ---------------- Configuration ----------------
-TOKEN = os.getenv("TOKEN")  # Set TOKEN in Railway environment variables
-CUSTOM_MESSAGE = "✅ You passed the captcha, join the channel http://t.me/+_-kLSN2ul783Yjg0"
-answers = {}
+captcha_answers = {}
+captcha_attempts = {}
 
-# ------------- Captcha Functions ----------------
-def captcha():
+join_log = []
+RAID_LIMIT = 10
+RAID_WINDOW = 10
+
+raid_locked = False
+raid_unlock_time = 0
+
+
+def generate_math():
+
     a = random.randint(1, 10)
     b = random.randint(1, 10)
-    correct = a + b
-    options = [correct]
-    while len(options) < 4:
-        x = correct + random.randint(-5, 5)
-        if x > 0 and x not in options:
-            options.append(x)
+    answer = a + b
+
+    options = [answer]
+
+    while len(options) < 3:
+        wrong = answer + random.randint(-5, 5)
+        if wrong != answer and wrong > 0:
+            options.append(wrong)
+
     random.shuffle(options)
-    return f"{a} + {b}", correct, options
 
-async def send_captcha(chat_id, context):
-    q, correct, options = captcha()
-    answers[chat_id] = correct
-    keyboard = [[InlineKeyboardButton(str(o), callback_data=str(o))] for o in options]
-    logger.info(f"Sending captcha to chat {chat_id}: {q} = {correct}")
-    await context.bot.send_message(chat_id, f"Solve captcha:\n\n{q} = ?", reply_markup=InlineKeyboardMarkup(keyboard))
+    buttons = []
 
-# ------------- Bot Handlers ----------------------
+    for x in options:
+        buttons.append([InlineKeyboardButton(str(x), callback_data=f"captcha_{x}")])
+
+    # silent honeypot button
+    buttons.append([InlineKeyboardButton("I'm not a bot 🤖", callback_data="honeypot")])
+
+    return f"What is {a} + {b} ?", answer, InlineKeyboardMarkup(buttons)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    global raid_locked
+
     user = update.effective_user
-    chat_id = update.effective_chat.id
-    logger.info(f"/start received from user {user.username} ({user.id}) in chat {chat_id}")
-    await send_captcha(chat_id, context)
+    now = time.time()
 
-async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    chat = query.message.chat.id
-    user = query.from_user.username
-    selected = int(query.data)
-    correct = answers.get(chat)
+    if raid_locked:
+        if now < raid_unlock_time:
+            await update.message.reply_text(
+                "⚠️ Join system temporarily locked due to raid protection."
+            )
+            return
+        else:
+            raid_locked = False
 
-    logger.info(f"User {user} in chat {chat} pressed button {selected} (correct: {correct})")
+    if user.id not in captcha_attempts:
+        captcha_attempts[user.id] = []
 
-    if selected != correct:
-        await query.edit_message_text("❌ Wrong answer. Try again.")
-        await send_captcha(chat, context)
+    captcha_attempts[user.id] = [
+        t for t in captcha_attempts[user.id] if now - t < 60
+    ]
+
+    if len(captcha_attempts[user.id]) >= 5:
+        await update.message.reply_text("Too many attempts. Try again later.")
         return
 
-    msg = await context.bot.send_message(chat, CUSTOM_MESSAGE)
-    await asyncio.sleep(5)
-    try:
-        await msg.delete()
-        logger.info(f"Deleted success message in chat {chat}")
-    except:
-        logger.warning(f"Failed to delete success message in chat {chat}")
-    await context.bot.send_message(chat, "⏰ Time ran out. Retry captcha.")
-    await send_captcha(chat, context)
+    captcha_attempts[user.id].append(now)
 
-# ------------- Flask Keep-Alive ------------------
-app = Flask("")
+    question, answer, keyboard = generate_math()
 
-@app.route("/")
-def home():
-    return "Bot is alive!"
+    captcha_answers[user.id] = answer
 
-def run_flask():
-    port = int(os.environ.get("PORT", 5000))
-    logger.info(f"Starting Flask server on port {port}")
-    app.run(host="0.0.0.0", port=port)
+    await update.message.reply_text(
+        f"Verify you are human:\n\n{question}",
+        reply_markup=keyboard
+    )
 
-# ------------- Run Bot --------------------------
-def run_bot():
-    application = ApplicationBuilder().token(TOKEN).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button))
-    logger.info("Bot is running...")
-    application.run_polling()
 
-# ------------- Start both -----------------------
+async def captcha_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    query = update.callback_query
+    user = query.from_user
+
+    await query.answer()
+
+    # honeypot trap
+    if query.data == "honeypot":
+
+        try:
+            await context.bot.send_message(
+                user.id,
+                "🚫 Bot detected. Access blocked."
+            )
+        except:
+            pass
+
+        captcha_answers.pop(user.id, None)
+        return
+
+    if user.id not in captcha_answers:
+        await query.edit_message_text("Captcha expired. Send /start again.")
+        return
+
+    chosen = int(query.data.split("_")[1])
+
+    if chosen == captcha_answers[user.id]:
+
+        expire = datetime.utcnow() + timedelta(seconds=5)
+
+        invite = await context.bot.create_chat_invite_link(
+            chat_id=GROUP_ID,
+            expire_date=expire,
+            member_limit=1
+        )
+
+        await query.edit_message_text(
+            "✅ Verification passed!\n\n"
+            f"Join the group (link expires in 5 seconds):\n{invite.invite_link}"
+        )
+
+        captcha_answers.pop(user.id)
+
+    else:
+        await query.answer("Wrong answer.", show_alert=True)
+
+
+async def new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    global raid_locked, raid_unlock_time
+
+    now = time.time()
+
+    join_log.append(now)
+
+    join_log[:] = [t for t in join_log if now - t < RAID_WINDOW]
+
+    if len(join_log) >= RAID_LIMIT:
+
+        raid_locked = True
+        raid_unlock_time = now + 60
+
+        await context.bot.send_message(
+            GROUP_ID,
+            "🚨 Raid detected. Join system locked for 60 seconds."
+        )
+
+
+async def delete_invite_links(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    message = update.message
+
+    if not message.text:
+        return
+
+    if "t.me/" in message.text or "telegram.me/" in message.text:
+
+        try:
+            await message.delete()
+        except:
+            pass
+
+
+def main():
+
+    app = Application.builder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+
+    app.add_handler(
+        CallbackQueryHandler(captcha_button)
+    )
+
+    app.add_handler(
+        MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member)
+    )
+
+    app.add_handler(
+        MessageHandler(filters.TEXT & filters.Chat(GROUP_ID), delete_invite_links)
+    )
+
+    print("Bot running...")
+
+    app.run_polling()
+
+
 if __name__ == "__main__":
-    t = Thread(target=run_flask)
-    t.start()
-    run_bot()
+    main()
