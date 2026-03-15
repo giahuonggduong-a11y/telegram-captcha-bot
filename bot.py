@@ -46,7 +46,7 @@ def generate_math():
         )
 
     keyboard.append(
-        [InlineKeyboardButton("I'm not a bot 🤖", callback_data="honeypot")]
+        [InlineKeyboardButton("🤖", callback_data="honeypot")]
     )
 
     return f"What is {a} + {b} ?", answer, InlineKeyboardMarkup(keyboard)
@@ -123,7 +123,7 @@ async def captcha_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         msg = await query.edit_message_text(
             "✅ Verification passed!\n\n"
-            f"Join the group (link expires in 5 seconds):\n{invite.invite_link}"
+            f"Join the group here (link expires in 5 seconds):\n{invite.invite_link}"
         )
 
         captcha_sessions.pop(user.id)
