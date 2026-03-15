@@ -21,6 +21,9 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
 captcha_sessions = {}
 captcha_attempts = {}
+blocked_users = {}
+
+COOLDOWN_TIME = 60
 
 
 def generate_math():
@@ -57,6 +60,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     now = time.time()
 
+    # ignore if user is blocked
+    if user.id in blocked_users:
+
+        if now < blocked_users[user.id]:
+            return
+        else:
+            blocked_users.pop(user.id)
+
     if user.id not in captcha_attempts:
         captcha_attempts[user.id] = []
 
@@ -65,7 +76,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
 
     if len(captcha_attempts[user.id]) >= 5:
-        await update.message.reply_text("Too many attempts. Try again later.")
+
+        blocked_users[user.id] = now + COOLDOWN_TIME
+
+        await update.message.reply_text(
+            "Too many attempts. Please try again later."
+        )
+
         return
 
     captcha_attempts[user.id].append(now)
