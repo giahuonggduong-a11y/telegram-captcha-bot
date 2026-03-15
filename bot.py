@@ -1,8 +1,8 @@
 import os
 import random
 import time
-from datetime import datetime, timedelta
 import requests
+from datetime import datetime, timedelta
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -23,11 +23,13 @@ captcha_attempts = {}
 
 
 def generate_math():
+
     a = random.randint(1, 10)
     b = random.randint(1, 10)
     answer = a + b
 
     options = [answer]
+
     while len(options) < 3:
         wrong = answer + random.randint(-5, 5)
         if wrong != answer and wrong > 0:
@@ -36,10 +38,15 @@ def generate_math():
     random.shuffle(options)
 
     keyboard = []
-    for x in options:
-        keyboard.append([InlineKeyboardButton(str(x), callback_data=f"captcha_{x}")])
 
-    keyboard.append([InlineKeyboardButton("I'm not a bot 🤖", callback_data="honeypot")])
+    for x in options:
+        keyboard.append(
+            [InlineKeyboardButton(str(x), callback_data=f"captcha_{x}")]
+        )
+
+    keyboard.append(
+        [InlineKeyboardButton("I'm not a bot 🤖", callback_data="honeypot")]
+    )
 
     return f"What is {a} + {b} ?", answer, InlineKeyboardMarkup(keyboard)
 
@@ -52,7 +59,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user.id not in captcha_attempts:
         captcha_attempts[user.id] = []
 
-    captcha_attempts[user.id] = [t for t in captcha_attempts[user.id] if now - t < 60]
+    captcha_attempts[user.id] = [
+        t for t in captcha_attempts[user.id] if now - t < 60
+    ]
 
     if len(captcha_attempts[user.id]) >= 5:
         await update.message.reply_text("Too many attempts. Try again later.")
@@ -81,12 +90,17 @@ async def captcha_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     if query.data == "honeypot":
+
         captcha_sessions.pop(user.id, None)
 
         try:
-            await context.bot.send_message(user.id, "🚫 Bot detected. Access blocked.")
+            await context.bot.send_message(
+                user.id,
+                "🚫 Bot detected. Access blocked."
+            )
         except:
             pass
+
         return
 
     if user.id not in captcha_sessions:
@@ -103,7 +117,7 @@ async def captcha_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         invite = await context.bot.create_chat_invite_link(
             chat_id=GROUP_ID,
             expire_date=expire,
-            member_limit=1,
+            member_limit=1
         )
 
         await query.edit_message_text(
@@ -114,6 +128,7 @@ async def captcha_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         captcha_sessions.pop(user.id)
 
     else:
+
         await query.answer("Wrong answer.", show_alert=True)
 
 
