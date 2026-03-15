@@ -1,6 +1,7 @@
 import os
 import random
 import time
+import asyncio
 import requests
 from datetime import datetime, timedelta
 
@@ -120,16 +121,40 @@ async def captcha_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             member_limit=1
         )
 
-        await query.edit_message_text(
+        msg = await query.edit_message_text(
             "✅ Verification passed!\n\n"
             f"Join the group (link expires in 5 seconds):\n{invite.invite_link}"
         )
 
         captcha_sessions.pop(user.id)
 
+        context.application.create_task(
+            delete_invite_message(context, user.id, msg.message_id)
+        )
+
     else:
 
         await query.answer("Wrong answer.", show_alert=True)
+
+
+async def delete_invite_message(context, user_id, message_id):
+
+    await asyncio.sleep(5)
+
+    try:
+
+        await context.bot.delete_message(
+            chat_id=user_id,
+            message_id=message_id
+        )
+
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="⏱ The invite link expired. Please send /start to try again."
+        )
+
+    except:
+        pass
 
 
 def fix_webhook():
